@@ -1,0 +1,32 @@
+# Curated seed documentation URLs for GCP and Azure infrastructure topics.
+# Supports both official HTML documentation pages and raw Markdown files.
+sources:
+  - provider: gcp
+    title: "GCP IAM Roles & Permissions Overview"
+    url: "https://cloud.google.com/iam/docs/roles-overview"
+    topic: "iam"
+
+  - provider: gcp
+    title: "GCP Virtual Private Cloud (VPC) Overview"
+    url: "https://cloud.google.com/vpc/docs/vpc"
+    topic: "networking"
+
+  - provider: gcp
+    title: "GKE Autopilot Overview"
+    url: "https://cloud.google.com/kubernetes-engine/docs/concepts/autopilot-overview"
+    topic: "kubernetes"
+
+  - provider: azure
+    title: "Azure Role-Based Access Control (RBAC) Overview"
+    url: "https://raw.githubusercontent.com/MicrosoftDocs/azure-docs/main/articles/role-based-access-control/overview.md"
+    topic: "iam"
+
+  - provider: azure
+    title: "Azure Virtual Network Overview"
+    url: "https://raw.githubusercontent.com/MicrosoftDocs/azure-docs/main/articles/virtual-network/virtual-networks-overview.md"
+    topic: "networking"
+
+  - provider: azure
+    title: "Azure Kubernetes Service (AKS) Overview"
+    url: "https://learn.microsoft.com/en-us/azure/aks/what-is-aks"
+    topic: "kubernetes"

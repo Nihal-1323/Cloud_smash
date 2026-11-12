@@ -1,0 +1,11 @@
+# Example named Cloudflare Tunnel configuration for exposing local Ollama (port 11434)
+# Save as ~/.cloudflared/config.yml on your local GPU workstation.
+tunnel: <YOUR-TUNNEL-UUID>
+credentials-file: /home/<USER>/.cloudflared/<YOUR-TUNNEL-UUID>.json
+
+ingress:
+  - hostname: ollama.your-domain.com
+    service: http://localhost:11434
+    originRequest:
+      httpHostHeader: localhost:11434
+  - service: http_status:404
