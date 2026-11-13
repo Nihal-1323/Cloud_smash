@@ -763,7 +763,14 @@ INDEX_HTML = r"""<!DOCTYPE html>
           })
         });
 
-        if (!response.ok) throw new Error('API status: ' + response.status);
+        if (!response.ok) {
+          let errDetail = '';
+          try {
+            const errJson = await response.json();
+            errDetail = errJson.detail || '';
+          } catch (_) {}
+          throw new Error(errDetail || `API status: ${response.status}`);
+        }
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -873,6 +880,25 @@ INDEX_HTML = r"""<!DOCTYPE html>
         btn.innerText = '[EXECUTE: SCRAPE → CHUNK → EMBED → UPSERT]';
       }
     }
+
+    // Live Health Diagnostic Polling
+    async function checkHealth() {
+      try {
+        const r = await fetch('/api/health');
+        const data = await r.json();
+        const latencyEl = document.getElementById('exec-latency');
+        if (data.status !== 'ok') {
+          latencyEl.classList.remove('hidden');
+          if (data.ollama && data.ollama.status !== 'ok') {
+            latencyEl.innerHTML = `<span class="text-rose-400 font-bold">[WARN: OLLAMA OFFLINE — RUN 'ollama serve']</span>`;
+          } else if (data.pinecone && data.pinecone.status !== 'ok') {
+            latencyEl.innerHTML = `<span class="text-rose-400 font-bold">[WARN: PINECONE ERROR]</span>`;
+          }
+        }
+      } catch (_) {}
+    }
+    checkHealth();
+    setInterval(checkHealth, 15000);
   </script>
 </body>
 </html>

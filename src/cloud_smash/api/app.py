@@ -38,6 +38,18 @@ def _sse_event(event: str, data: object) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
+def _format_upstream_error(exc: Exception, base_url: str) -> str:
+    err_str = str(exc)
+    exc_name = type(exc).__name__
+    if "11434" in err_str or "ConnectError" in exc_name or "connect" in err_str.lower():
+        return (
+            f"Cannot connect to Ollama at {base_url}. Please ensure 'ollama serve' is running in a terminal."
+        )
+    if "pinecone" in err_str.lower() or "401" in err_str or "unauthenticated" in err_str.lower():
+        return f"Pinecone vector database error: {exc}. Verify your PINECONE_API_KEY in .env."
+    return f"Upstream RAG error: {exc}"
+
+
 def create_app(
     settings: Settings | None = None,
     *,
@@ -102,7 +114,8 @@ def create_app(
             )
         except Exception as exc:
             logger.exception("Chat request failed: %s", exc)
-            raise HTTPException(status_code=502, detail=f"Upstream RAG error: {exc}") from exc
+            detail = _format_upstream_error(exc, cfg.ollama_base_url)
+            raise HTTPException(status_code=502, detail=detail) from exc
 
         return ChatResponse(
             answer=result.answer,
@@ -121,7 +134,8 @@ def create_app(
             )
         except Exception as exc:
             logger.exception("Streaming RAG setup failed: %s", exc)
-            raise HTTPException(status_code=502, detail=f"Upstream RAG error: {exc}") from exc
+            detail = _format_upstream_error(exc, cfg.ollama_base_url)
+            raise HTTPException(status_code=502, detail=detail) from exc
 
         citations = [SourceCitation.from_chunk(chunk).model_dump() for chunk in chunks]
 
