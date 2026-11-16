@@ -131,6 +131,8 @@ pillow==12.3.0
     # via gradio
 pinecone==10.3.0
     # via -r requirements.in
+plotly==5.24.1
+    # via -r requirements.in
 pydantic==2.14.3
     # via
     #   -r requirements.in

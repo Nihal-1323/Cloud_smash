@@ -15,6 +15,12 @@ class _FakeOllama:
     async def health_check(self) -> dict:
         return {"status": "ok", "models": ["qwen2.5:7b-instruct", "nomic-embed-text"]}
 
+    async def embed(self, text: str) -> list[float]:
+        return [0.1] * 768
+
+    async def embed_query(self, text: str) -> list[float]:
+        return [0.1] * 768
+
     async def aclose(self) -> None:
         return None
 
@@ -22,11 +28,29 @@ class _FakeOllama:
 class _FakeStore:
     def __init__(self, fail_health: bool = False) -> None:
         self._fail_health = fail_health
+        self._chunk = RetrievedChunk(
+            id="doc-1",
+            score=0.94,
+            text="GKE Autopilot manages cluster nodes automatically.",
+            url="https://cloud.google.com/kubernetes-engine/docs/concepts/autopilot-overview",
+            title="GKE Autopilot Overview",
+            provider="gcp",
+            topic="kubernetes",
+        )
 
     def health_check(self) -> dict:
         if self._fail_health:
             raise RuntimeError("Pinecone unreachable")
         return {"status": "ok", "index": "cloud-infra-docs", "total_vector_count": 42}
+
+    def get_all_chunks(self, force_refresh: bool = False, max_chunks: int = 200) -> list[RetrievedChunk]:
+        return [self._chunk]
+
+    async def aget_all_chunks(self, force_refresh: bool = False, max_chunks: int = 200) -> list[RetrievedChunk]:
+        return [self._chunk]
+
+    async def aquery(self, vector: list[float], top_k: int | None = None, provider: str | None = None) -> list[RetrievedChunk]:
+        return [self._chunk]
 
 
 class _FakeRAGService:
@@ -141,3 +165,49 @@ def test_enterprise_ui_and_gradio_mount() -> None:
 
         gradio_resp = client.get("/gradio")
         assert gradio_resp.status_code == 200
+
+
+def test_chunks_endpoint() -> None:
+    app = create_app(
+        Settings(),
+        ollama=_FakeOllama(),
+        pinecone_store=_FakeStore(),
+        rag_service=_FakeRAGService(),
+        mount_ui=False,
+    )
+    with TestClient(app) as client:
+        resp = client.get("/api/chunks")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_count"] == 1
+        assert data["chunks"][0]["id"] == "doc-1"
+        assert data["provider_counts"]["gcp"] == 1
+
+
+def test_graph_endpoints_get_and_post() -> None:
+    app = create_app(
+        Settings(),
+        ollama=_FakeOllama(),
+        pinecone_store=_FakeStore(),
+        rag_service=_FakeRAGService(),
+        mount_ui=False,
+    )
+    with TestClient(app) as client:
+        # GET default graph (no query yet)
+        get_resp = client.get("/api/graph")
+        assert get_resp.status_code == 200
+        get_data = get_resp.json()
+        assert get_data["input_chunk"] is None
+        assert get_data["total_present_count"] == 1
+
+        # POST with query
+        post_resp = client.post("/api/graph", json={"query": "What is GKE Autopilot?", "top_k": 2})
+        assert post_resp.status_code == 200
+        post_data = post_resp.json()
+        assert post_data["input_chunk"] is not None
+        assert post_data["input_chunk"]["query"] == "What is GKE Autopilot?"
+        assert post_data["input_chunk"]["status"] == "vectorized"
+        assert len(post_data["retrieved_chunks"]) == 1
+        assert post_data["retrieved_chunks"][0]["id"] == "doc-1"
+        # The present chunk should be marked is_retrieved=True
+        assert post_data["present_chunks"][0]["is_retrieved"] is True

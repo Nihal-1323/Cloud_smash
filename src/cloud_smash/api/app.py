@@ -12,7 +12,17 @@ import gradio as gr
 from pydantic import BaseModel, Field
 import uvicorn
 
-from cloud_smash.api.schemas import ChatRequest, ChatResponse, HealthResponse, SourceCitation
+from cloud_smash.api.schemas import (
+    ChatRequest,
+    ChatResponse,
+    ChunksResponse,
+    GraphMapRequest,
+    GraphMapResponse,
+    HealthResponse,
+    InputChunkInfo,
+    PresentChunkInfo,
+    SourceCitation,
+)
 from cloud_smash.clients.ollama import OllamaClient
 from cloud_smash.clients.pinecone_store import PineconeStore
 from cloud_smash.config import Settings, get_settings
@@ -176,12 +186,116 @@ def create_app(
             logger.exception("Live ingestion failed: %s", exc)
             raise HTTPException(status_code=500, detail=f"Ingestion error: {exc}") from exc
 
+    @app.get("/api/chunks", response_model=ChunksResponse)
+    async def get_present_chunks() -> ChunksResponse:
+        chunks = await store.aget_all_chunks()
+        present = [PresentChunkInfo.from_chunk(c) for c in chunks]
+        prov_counts: dict[str, int] = {}
+        top_counts: dict[str, int] = {}
+        for c in chunks:
+            prov_counts[c.provider] = prov_counts.get(c.provider, 0) + 1
+            if c.topic:
+                top_counts[c.topic] = top_counts.get(c.topic, 0) + 1
+        return ChunksResponse(
+            chunks=present,
+            total_count=len(present),
+            provider_counts=prov_counts,
+            topic_counts=top_counts,
+        )
+
+    @app.get("/api/graph", response_model=GraphMapResponse)
+    async def get_graph_default() -> GraphMapResponse:
+        chunks = await store.aget_all_chunks()
+        present = [PresentChunkInfo.from_chunk(c) for c in chunks]
+        prov_counts: dict[str, int] = {}
+        top_counts: dict[str, int] = {}
+        for c in chunks:
+            prov_counts[c.provider] = prov_counts.get(c.provider, 0) + 1
+            if c.topic:
+                top_counts[c.topic] = top_counts.get(c.topic, 0) + 1
+        return GraphMapResponse(
+            input_chunk=None,
+            retrieved_chunks=[],
+            present_chunks=present,
+            total_present_count=len(present),
+            provider_counts=prov_counts,
+            topic_counts=top_counts,
+        )
+
+    @app.post("/api/graph", response_model=GraphMapResponse)
+    async def compute_graph_map(request: GraphMapRequest) -> GraphMapResponse:
+        query_text = (request.query or "").strip()
+        all_chunks = await store.aget_all_chunks()
+        prov_counts: dict[str, int] = {}
+        top_counts: dict[str, int] = {}
+        for c in all_chunks:
+            prov_counts[c.provider] = prov_counts.get(c.provider, 0) + 1
+            if c.topic:
+                top_counts[c.topic] = top_counts.get(c.topic, 0) + 1
+
+        if not query_text:
+            present = [PresentChunkInfo.from_chunk(c) for c in all_chunks]
+            return GraphMapResponse(
+                input_chunk=None,
+                retrieved_chunks=[],
+                present_chunks=present,
+                total_present_count=len(present),
+                provider_counts=prov_counts,
+                topic_counts=top_counts,
+            )
+
+        try:
+            import tiktoken
+            enc = tiktoken.get_encoding("cl100k_base")
+            token_count = len(enc.encode(query_text))
+        except Exception:
+            token_count = max(1, len(query_text.split()))
+
+        try:
+            vector = await ollama_client.embed_query(query_text)
+            top_k = request.top_k or cfg.rag_top_k
+            retrieved = await store.aquery(vector, top_k=top_k, provider=request.provider)
+        except Exception as exc:
+            logger.exception("Graph vector retrieval failed: %s", exc)
+            detail = _format_upstream_error(exc, cfg.ollama_base_url)
+            raise HTTPException(status_code=502, detail=detail) from exc
+
+        retrieved_citations = [SourceCitation.from_chunk(c) for c in retrieved]
+        retrieved_map = {c.id: (c.score, idx + 1) for idx, c in enumerate(retrieved)}
+
+        present = [
+            PresentChunkInfo.from_chunk(
+                c,
+                is_retrieved=c.id in retrieved_map,
+                score=retrieved_map[c.id][0] if c.id in retrieved_map else None,
+                rank=retrieved_map[c.id][1] if c.id in retrieved_map else None,
+            )
+            for c in all_chunks
+        ]
+
+        input_chunk = InputChunkInfo(
+            query=query_text,
+            token_count=token_count,
+            embed_model=cfg.ollama_embed_model,
+            embed_dimension=cfg.pinecone_embed_dimension,
+            status="vectorized",
+        )
+
+        return GraphMapResponse(
+            input_chunk=input_chunk,
+            retrieved_chunks=retrieved_citations,
+            present_chunks=present,
+            total_present_count=len(present),
+            provider_counts=prov_counts,
+            topic_counts=top_counts,
+        )
+
     @app.get("/", response_class=HTMLResponse)
     async def index() -> HTMLResponse:
         return HTMLResponse(content=INDEX_HTML)
 
     if mount_ui:
-        demo = create_gradio_app(rag, cfg)
+        demo = create_gradio_app(rag, cfg, pinecone_store=store)
         app = gr.mount_gradio_app(app, demo, path="/gradio", theme=get_gradio_theme())
 
     return app

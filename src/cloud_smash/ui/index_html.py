@@ -241,14 +241,17 @@ INDEX_HTML = r"""<!DOCTYPE html>
         <button id="nav-btn-console" onclick="switchView('console')" class="px-3 py-1.5 text-acid bg-white/5 border border-acid/40 transition">
           [01] CONSOLE
         </button>
+        <button id="nav-btn-graph" onclick="switchView('graph')" class="px-3 py-1.5 text-neutral-400 hover:text-white transition">
+          [02] CHUNK GRAPH MAP
+        </button>
         <button id="nav-btn-corpus" onclick="switchView('corpus')" class="px-3 py-1.5 text-neutral-400 hover:text-white transition">
-          [02] CORPUS INDEX
+          [03] CORPUS INDEX
         </button>
         <button id="nav-btn-blueprint" onclick="switchView('blueprint')" class="px-3 py-1.5 text-neutral-400 hover:text-white transition">
-          [03] TOPOLOGY
+          [04] TOPOLOGY
         </button>
         <button id="nav-btn-ingest" onclick="switchView('ingest')" class="px-3 py-1.5 text-neutral-400 hover:text-white transition">
-          [04] INGESTION HUB
+          [05] INGESTION HUB
         </button>
       </nav>
     </div>
@@ -449,7 +452,160 @@ INDEX_HTML = r"""<!DOCTYPE html>
 
     </div>
 
-    <!-- ==================== VIEW 2: CORPUS INDEX ==================== -->
+    <!-- ==================== VIEW 2: PROCESS GRAPH MAP ==================== -->
+    <div id="view-graph" class="flex-1 flex flex-col md:flex-row overflow-hidden hidden">
+      
+      <!-- Center Graph Area -->
+      <div class="flex-1 flex flex-col overflow-hidden hairline-r">
+        
+        <!-- Graph Control Header Bar -->
+        <div class="hairline-b bg-surface-900/80 px-6 py-3 flex-shrink-0 flex flex-wrap items-center justify-between gap-3 font-mono text-xs z-20">
+          
+          <!-- Mode Switcher: Unified vs Separate -->
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <span class="text-[10px] text-neutral-500 uppercase tracking-wider mr-1">PROCESS VIEW:</span>
+            <button id="graph-mode-unified" onclick="setGraphMode('unified')" class="px-2.5 py-1 text-acid bg-white/5 border border-acid/40 text-[10px] font-bold transition">
+              [UNIFIED FLOW]
+            </button>
+            <button id="graph-mode-input" onclick="setGraphMode('input')" class="px-2.5 py-1 text-neutral-400 hover:text-white border border-transparent text-[10px] transition">
+              [01: INPUT CHUNK]
+            </button>
+            <button id="graph-mode-retrieved" onclick="setGraphMode('retrieved')" class="px-2.5 py-1 text-neutral-400 hover:text-white border border-transparent text-[10px] transition">
+              [02: RETRIEVED CHUNKS]
+            </button>
+            <button id="graph-mode-present" onclick="setGraphMode('present')" class="px-2.5 py-1 text-neutral-400 hover:text-white border border-transparent text-[10px] transition">
+              [03: PRESENT CHUNKS]
+            </button>
+          </div>
+
+          <!-- Quick Metrics Ticker -->
+          <div class="flex items-center gap-3 text-[10px] text-neutral-400">
+            <span id="graph-stat-input" class="px-2 py-0.5 bg-void hairline text-amber-300">INPUT: AWAITING QUERY</span>
+            <span id="graph-stat-retrieved" class="px-2 py-0.5 bg-void hairline text-emerald-400">RETRIEVED: 0 CHUNKS</span>
+            <span id="graph-stat-present" class="px-2 py-0.5 bg-void hairline text-sky-400">PRESENT: 50 CHUNKS</span>
+          </div>
+
+        </div>
+
+        <!-- Inline Query Bar for Graph View -->
+        <div class="hairline-b bg-void/60 px-6 py-2.5 flex items-center gap-3 font-mono text-xs flex-shrink-0">
+          <span class="text-acid font-bold select-none">&gt;</span>
+          <input type="text" id="graph-query-input" placeholder="Enter technical query to map retrieval (e.g., GKE Autopilot nodes, Azure RBAC scopes, GCP VPC)..." class="w-full bg-transparent outline-none text-white text-xs placeholder-neutral-500" onkeydown="if(event.key==='Enter') executeGraphQuery()">
+          <button onclick="executeGraphQuery()" id="btn-graph-exec" class="px-3 py-1 bg-acid hover:bg-acid-dim text-void font-bold text-[10px] uppercase tracking-wider flex-shrink-0 transition">
+            EXEC SCAN ➔
+          </button>
+        </div>
+
+        <!-- Graph Map Interactive SVG Canvas Container -->
+        <div id="graph-canvas-container" class="relative flex-1 bg-void overflow-hidden flex items-center justify-center select-none">
+          <svg id="rag-process-svg" class="w-full h-full" viewBox="0 0 960 540" preserveAspectRatio="xMidYMid meet">
+            <!-- Dynamic SVG content rendered here -->
+          </svg>
+
+          <!-- Floating Canvas Legend -->
+          <div class="absolute bottom-4 left-6 pointer-events-none font-mono text-[10px] text-neutral-400 bg-surface-900/90 hairline p-2.5 rounded backdrop-blur space-y-1">
+            <div class="flex items-center gap-2">
+              <span class="w-3 h-3 rounded-full bg-amber-400 inline-block shadow-[0_0_8px_rgba(251,191,36,0.6)]"></span>
+              <span>Input Chunk (Query Vector &middot; 768-D)</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="w-3 h-3 rounded-full bg-emerald-400 inline-block shadow-[0_0_8px_rgba(52,211,153,0.6)]"></span>
+              <span>Retrieved Chunks (Cosine Similarities)</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="w-3 h-3 rounded-full bg-sky-500 inline-block"></span>
+              <span>Present Chunks (GCP & Azure Knowledge Base)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom Separate Detail Swimlanes (Togglable / Expandable) -->
+        <div class="hairline-t bg-surface-900/70 p-4 overflow-y-auto max-h-64 flex-shrink-0 space-y-3 font-mono text-xs">
+          
+          <!-- Swimlane Selector Tabs -->
+          <div class="flex items-center justify-between hairline-b pb-2">
+            <div class="flex items-center gap-2">
+              <span class="text-[10px] uppercase text-neutral-500 font-bold">DETAILED BREAKDOWN:</span>
+              <button id="tab-btn-input-detail" onclick="switchDetailTab('input')" class="px-2 py-0.5 text-amber-300 bg-white/5 border border-amber-300/40 text-[10px]">
+                [INPUT CHUNK (SEPARATE)]
+              </button>
+              <button id="tab-btn-retrieved-detail" onclick="switchDetailTab('retrieved')" class="px-2 py-0.5 text-neutral-400 hover:text-white text-[10px]">
+                [RETRIEVED CHUNKS (SEPARATE)]
+              </button>
+              <button id="tab-btn-present-detail" onclick="switchDetailTab('present')" class="px-2 py-0.5 text-neutral-400 hover:text-white text-[10px]">
+                [ALL PRESENT CHUNKS (SEPARATE)]
+              </button>
+            </div>
+            <span id="detail-counter" class="text-[10px] text-acid">READY</span>
+          </div>
+
+          <!-- Section 1: Input Chunk Separate View -->
+          <div id="detail-pane-input" class="space-y-3">
+            <div class="p-4 bg-void hairline space-y-2">
+              <div class="flex items-center justify-between text-[11px]">
+                <span class="text-amber-400 font-bold">[INPUT DIRECTIVE & EMBEDDING STATUS]</span>
+                <span class="text-neutral-400" id="input-token-badge">TOKEN COUNT: 0</span>
+              </div>
+              <div id="input-query-display" class="text-white text-sm italic font-serif py-1">"Awaiting query directive..."</div>
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 hairline-t text-[10px] text-neutral-400">
+                <div>MODEL: <b class="text-white">nomic-embed-text</b></div>
+                <div>DIMENSION: <b class="text-white">768-D Float32</b></div>
+                <div>METRIC: <b class="text-white">Cosine Distance</b></div>
+                <div>STATUS: <b class="text-amber-400" id="input-status-badge">STANDBY</b></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 2: Retrieved Chunks Separate View -->
+          <div id="detail-pane-retrieved" class="space-y-2 hidden">
+            <div id="retrieved-chunks-grid" class="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <div class="p-4 bg-void hairline text-neutral-500 text-center col-span-2">No chunks retrieved yet. Execute a query to inspect cosine matches.</div>
+            </div>
+          </div>
+
+          <!-- Section 3: All Present Chunks Separate View -->
+          <div id="detail-pane-present" class="space-y-2 hidden">
+            <div class="flex items-center gap-3 pb-2">
+              <input type="text" id="present-search-input" placeholder="Search 50 present chunks by title, topic, or keyword..." oninput="filterPresentChunksList()" class="bg-void hairline px-3 py-1 text-white text-xs w-full max-w-sm outline-none focus:border-acid">
+              <div class="flex items-center gap-1 text-[10px]">
+                <button onclick="filterPresentByProvider('all')" id="btn-pres-all" class="px-2 py-0.5 text-acid bg-white/5 border border-acid/30">ALL (50)</button>
+                <button onclick="filterPresentByProvider('gcp')" id="btn-pres-gcp" class="px-2 py-0.5 text-neutral-400 hover:text-white">GCP</button>
+                <button onclick="filterPresentByProvider('azure')" id="btn-pres-azure" class="px-2 py-0.5 text-neutral-400 hover:text-white">AZURE</button>
+              </div>
+            </div>
+            <div id="present-chunks-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-48 overflow-y-auto">
+              <!-- Dynamically populated present chunks -->
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+      <!-- Right Chunk Inspector Drawer -->
+      <aside class="w-full md:w-80 lg:w-96 bg-surface-900/80 p-5 flex flex-col flex-shrink-0 overflow-hidden hairline-l">
+        <div class="flex items-center justify-between pb-3 hairline-b mb-4 font-mono">
+          <div class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+            <span class="w-2 h-2 bg-acid"></span>
+            <span>CHUNK INSPECTOR</span>
+          </div>
+          <span id="inspector-badge" class="text-[10px] text-acid uppercase font-bold">[SELECT NODE]</span>
+        </div>
+
+        <div id="inspector-body" class="flex-1 overflow-y-auto font-mono text-xs space-y-4">
+          <div class="text-center py-24 text-neutral-500 space-y-2">
+            <div class="text-3xl text-neutral-600">//</div>
+            <div class="text-white font-bold text-xs uppercase tracking-wider">Node Telemetry Standby</div>
+            <p class="text-[10px] text-neutral-400 max-w-[220px] mx-auto leading-relaxed">
+              Click or hover on any node in the graph map (Input Chunk, Retrieved Chunk, or Present Knowledge Base Chunk) to inspect its full vector payload.
+            </p>
+          </div>
+        </div>
+      </aside>
+
+    </div>
+
+    <!-- ==================== VIEW 3: CORPUS INDEX ==================== -->
     <div id="view-corpus" class="flex-1 overflow-y-auto p-6 md:p-12 hidden">
       <div class="max-w-4xl mx-auto space-y-8">
         <div>
@@ -613,18 +769,34 @@ INDEX_HTML = r"""<!DOCTYPE html>
     let history = [];
     let isExecuting = false;
 
+    // Process Graph Map State
+    let currentGraphMode = 'unified'; // 'unified' | 'input' | 'retrieved' | 'present'
+    let currentDetailTab = 'input';
+    let currentGraphData = null;
+    let presentProviderFilter = 'all';
+    let isFetchingGraph = false;
+
     // View Switching
     function switchView(viewName) {
-      ['console', 'corpus', 'blueprint', 'ingest'].forEach(v => {
-        document.getElementById(`view-${v}`).classList.add('hidden');
+      ['console', 'graph', 'corpus', 'blueprint', 'ingest'].forEach(v => {
+        const el = document.getElementById(`view-${v}`);
+        if (el) el.classList.add('hidden');
         const btn = document.getElementById(`nav-btn-${v}`);
-        btn.classList.remove('text-acid', 'bg-white/5', 'border', 'border-acid/40');
-        btn.classList.add('text-neutral-400');
+        if (btn) {
+          btn.classList.remove('text-acid', 'bg-white/5', 'border', 'border-acid/40');
+          btn.classList.add('text-neutral-400');
+        }
       });
-      document.getElementById(`view-${viewName}`).classList.remove('hidden');
+      const targetEl = document.getElementById(`view-${viewName}`);
+      if (targetEl) targetEl.classList.remove('hidden');
       const activeBtn = document.getElementById(`nav-btn-${viewName}`);
-      activeBtn.classList.add('text-acid', 'bg-white/5', 'border', 'border-acid/40');
-      activeBtn.classList.remove('text-neutral-400');
+      if (activeBtn) {
+        activeBtn.classList.add('text-acid', 'bg-white/5', 'border', 'border-acid/40');
+        activeBtn.classList.remove('text-neutral-400');
+      }
+      if (viewName === 'graph') {
+        initGraphView();
+      }
     }
 
     // Scope Selector
@@ -795,6 +967,7 @@ INDEX_HTML = r"""<!DOCTYPE html>
 
             if (ev === 'sources') {
               renderEvidenceDeck(data);
+              syncGraphFromSources(query, data);
             } else if (ev === 'token') {
               fullAnswer += data.token || '';
               bodyEl.innerHTML = formatDossierMarkdown(fullAnswer);
@@ -834,6 +1007,564 @@ INDEX_HTML = r"""<!DOCTYPE html>
         "'": '&#39;',
         '"': '&quot;'
       }[tag] || tag));
+    }
+
+    // ============================================================
+    // PROCESS GRAPH MAP JAVASCRIPT ENGINE
+    // ============================================================
+
+    async function initGraphView() {
+      if (!currentGraphData && !isFetchingGraph) {
+        isFetchingGraph = true;
+        try {
+          const res = await fetch('/api/graph');
+          if (res.ok) {
+            currentGraphData = await res.json();
+            renderGraphMap(currentGraphData, currentGraphMode);
+            renderDetailPanes(currentGraphData);
+          }
+        } catch (e) {
+          console.error('Failed to initialize graph:', e);
+        } finally {
+          isFetchingGraph = false;
+        }
+      } else if (currentGraphData) {
+        renderGraphMap(currentGraphData, currentGraphMode);
+        renderDetailPanes(currentGraphData);
+      }
+    }
+
+    function setGraphMode(mode) {
+      currentGraphMode = mode;
+      ['unified', 'input', 'retrieved', 'present'].forEach(m => {
+        const btn = document.getElementById('graph-mode-' + m);
+        if (!btn) return;
+        if (m === mode) {
+          btn.className = 'px-2.5 py-1 text-acid bg-white/5 border border-acid/40 text-[10px] font-bold transition';
+        } else {
+          btn.className = 'px-2.5 py-1 text-neutral-400 hover:text-white border border-transparent text-[10px] transition';
+        }
+      });
+
+      if (mode === 'input') switchDetailTab('input');
+      else if (mode === 'retrieved') switchDetailTab('retrieved');
+      else if (mode === 'present') switchDetailTab('present');
+
+      if (currentGraphData) {
+        renderGraphMap(currentGraphData, currentGraphMode);
+      }
+    }
+
+    function switchDetailTab(tab) {
+      currentDetailTab = tab;
+      ['input', 'retrieved', 'present'].forEach(t => {
+        const btn = document.getElementById('tab-btn-' + t + '-detail');
+        const pane = document.getElementById('detail-pane-' + t);
+        if (t === tab) {
+          if (btn) btn.className = 'px-2 py-0.5 text-amber-300 bg-white/5 border border-amber-300/40 text-[10px]';
+          if (pane) pane.classList.remove('hidden');
+        } else {
+          if (btn) btn.className = 'px-2 py-0.5 text-neutral-400 hover:text-white text-[10px]';
+          if (pane) pane.classList.add('hidden');
+        }
+      });
+    }
+
+    async function executeGraphQuery() {
+      const qInput = document.getElementById('graph-query-input');
+      const q = (qInput.value || '').trim();
+      if (!q) return;
+
+      const btn = document.getElementById('btn-graph-exec');
+      btn.innerText = 'SCANNING...';
+      btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/graph', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: q, provider: currentScope, top_k: 4 })
+        });
+        if (res.ok) {
+          currentGraphData = await res.json();
+          renderGraphMap(currentGraphData, currentGraphMode);
+          renderDetailPanes(currentGraphData);
+          if (document.getElementById('command-input')) {
+            document.getElementById('command-input').value = q;
+          }
+        }
+      } catch (err) {
+        console.error('Graph query execution failed:', err);
+      } finally {
+        btn.innerText = 'EXEC SCAN ➔';
+        btn.disabled = false;
+      }
+    }
+
+    async function syncGraphFromSources(query, sources) {
+      if (!currentGraphData) {
+        try {
+          const res = await fetch('/api/graph');
+          if (res.ok) currentGraphData = await res.json();
+        } catch (_) {}
+      }
+      if (currentGraphData) {
+        const retrievedIds = new Set((sources || []).map(s => s.id));
+        currentGraphData.input_chunk = {
+          query: query,
+          token_count: Math.max(1, query.split(/\s+/).length),
+          embed_model: 'nomic-embed-text',
+          embed_dimension: 768,
+          status: 'vectorized'
+        };
+        currentGraphData.retrieved_chunks = sources || [];
+        if (currentGraphData.present_chunks) {
+          currentGraphData.present_chunks.forEach((c, idx) => {
+            c.is_retrieved = retrievedIds.has(c.id);
+            const found = (sources || []).find(s => s.id === c.id);
+            c.score = found ? found.score : null;
+            c.retrieval_rank = found ? (sources.indexOf(found) + 1) : null;
+          });
+        }
+        renderGraphMap(currentGraphData, currentGraphMode);
+        renderDetailPanes(currentGraphData);
+      }
+    }
+
+    function renderGraphMap(data, mode) {
+      const svg = document.getElementById('rag-process-svg');
+      if (!svg || !data) return;
+
+      const inputChunk = data.input_chunk;
+      const retrieved = data.retrieved_chunks || [];
+      const present = data.present_chunks || [];
+      const totalPresent = data.total_present_count || present.length || 50;
+
+      // Update Tickers
+      const inStat = document.getElementById('graph-stat-input');
+      const retStat = document.getElementById('graph-stat-retrieved');
+      const presStat = document.getElementById('graph-stat-present');
+      if (inStat) inStat.innerText = inputChunk ? 'INPUT: ' + inputChunk.token_count + ' TOKENS' : 'INPUT: AWAITING QUERY';
+      if (retStat) retStat.innerText = 'RETRIEVED: ' + retrieved.length + ' CHUNKS';
+      if (presStat) presStat.innerText = 'PRESENT: ' + totalPresent + ' CHUNKS';
+
+      let out = '';
+      out += '<defs>';
+      out += '  <filter id="goldGlow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>';
+      out += '  <filter id="emeraldGlow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>';
+      out += '  <filter id="blueGlow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>';
+      out += '  <linearGradient id="vectorLaser" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#fbbf24"/><stop offset="100%" stop-color="#10b981"/></linearGradient>';
+      out += '</defs>';
+
+      // Grid Pattern
+      out += '<g opacity="0.12">';
+      for (let x = 40; x < 960; x += 40) {
+        out += '<line x1="' + x + '" y1="0" x2="' + x + '" y2="540" stroke="#fff" stroke-width="0.5"/>';
+      }
+      for (let y = 40; y < 540; y += 40) {
+        out += '<line x1="0" y1="' + y + '" x2="' + y + '" stroke="#fff" stroke-width="0.5"/>';
+      }
+      out += '</g>';
+
+      // ==========================================
+      // VIEW MODE 1: SEPARATE INPUT CHUNK
+      // ==========================================
+      if (mode === 'input') {
+        const qText = inputChunk ? inputChunk.query : 'Awaiting input query...';
+        const tokens = inputChunk ? inputChunk.token_count : 0;
+        const modelName = inputChunk ? inputChunk.embed_model : 'nomic-embed-text';
+        const dims = inputChunk ? inputChunk.embed_dimension : 768;
+
+        out += '<text x="480" y="42" text-anchor="middle" font-family="JetBrains Mono" font-size="12" font-weight="700" fill="#fbbf24" letter-spacing="2">STAGE 01 // INPUT CHUNK ISOLATION & VECTOR SPACE</text>';
+        out += '<text x="480" y="62" text-anchor="middle" font-family="Space Grotesk" font-size="11" fill="#94a3b8">The incoming user prompt is tokenized and embedded into a 768-dimensional dense vector representation</text>';
+
+        // Concentric Embedding Radiance
+        out += '<circle cx="480" cy="240" r="160" fill="none" stroke="rgba(251,191,36,0.08)" stroke-width="1.5" stroke-dasharray="6,6"/>';
+        out += '<circle cx="480" cy="240" r="110" fill="none" stroke="rgba(251,191,36,0.18)" stroke-width="1.5" stroke-dasharray="4,4"/>';
+        out += '<circle cx="480" cy="240" r="65" fill="none" stroke="rgba(251,191,36,0.3)" stroke-width="2"/>';
+
+        // Core Input Chunk Node
+        out += '<g class="cursor-pointer" onclick="inspectChunk(' + JSON.stringify(inputChunk || { query: qText }).replace(/"/g, '&quot;') + ', \'input\')">';
+        out += '  <polygon points="480,195 520,218 520,262 480,285 440,262 440,218" fill="#fbbf24" filter="url(#goldGlow)"/>';
+        out += '  <polygon points="480,205 510,222 510,258 480,275 450,258 450,222" fill="#0f172a" stroke="#fbbf24" stroke-width="2"/>';
+        out += '  <text x="480" y="244" text-anchor="middle" font-family="JetBrains Mono" font-size="11" font-weight="700" fill="#fbbf24">INPUT</text>';
+        out += '</g>';
+
+        // Callout Left: Tokenization
+        out += '<rect x="120" y="195" width="220" height="90" rx="4" fill="#0b0d12" stroke="rgba(255,255,255,0.15)"/>';
+        out += '<text x="136" y="222" font-family="JetBrains Mono" font-size="10" font-weight="700" fill="#fbbf24">[TOKEN ENGINE]</text>';
+        out += '<text x="136" y="244" font-family="Space Grotesk" font-size="13" font-weight="700" fill="#fff">' + tokens + ' Tokens</text>';
+        out += '<text x="136" y="264" font-family="JetBrains Mono" font-size="9" fill="#94a3b8">Tokenizer: cl100k_base (tiktoken)</text>';
+        out += '<line x1="340" y1="240" x2="415" y2="240" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="3,3"/>';
+
+        // Callout Right: Vector Embedding
+        out += '<rect x="620" y="195" width="220" height="90" rx="4" fill="#0b0d12" stroke="rgba(255,255,255,0.15)"/>';
+        out += '<text x="636" y="222" font-family="JetBrains Mono" font-size="10" font-weight="700" fill="#38bdf8">[DENSE VECTOR MATRIX]</text>';
+        out += '<text x="636" y="244" font-family="Space Grotesk" font-size="13" font-weight="700" fill="#fff">' + dims + '-Dimensional</text>';
+        out += '<text x="636" y="264" font-family="JetBrains Mono" font-size="9" fill="#94a3b8">Model: ' + modelName + '</text>';
+        out += '<line x1="545" y1="240" x2="620" y2="240" stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="3,3"/>';
+
+        // Bottom Query Directive Card
+        out += '<rect x="180" y="380" width="600" height="70" rx="4" fill="#0b0d12" stroke="rgba(251,191,36,0.3)"/>';
+        out += '<text x="200" y="405" font-family="JetBrains Mono" font-size="10" font-weight="700" fill="#fbbf24">QUERY DIRECTIVE // ACTIVE</text>';
+        out += '<text x="200" y="430" font-family="Space Grotesk" font-size="12" fill="#fff">"' + escapeHtml(qText) + '"</text>';
+
+      // ==========================================
+      // VIEW MODE 2: SEPARATE RETRIEVED CHUNKS
+      // ==========================================
+      } else if (mode === 'retrieved') {
+        out += '<text x="480" y="42" text-anchor="middle" font-family="JetBrains Mono" font-size="12" font-weight="700" fill="#10b981" letter-spacing="2">STAGE 02 // RETRIEVED CHUNKS & COSINE DISTANCES</text>';
+        out += '<text x="480" y="62" text-anchor="middle" font-family="Space Grotesk" font-size="11" fill="#94a3b8">Top-K semantically relevant document chunks extracted via Pinecone cosine similarity</text>';
+
+        const k = retrieved.length;
+        // Input Node on Left
+        out += '<g class="cursor-pointer" onclick="inspectChunk(' + JSON.stringify(inputChunk || {}).replace(/"/g, '&quot;') + ', \'input\')">';
+        out += '  <circle cx="160" cy="270" r="28" fill="#fbbf24" filter="url(#goldGlow)"/>';
+        out += '  <circle cx="160" cy="270" r="22" fill="#0f172a" stroke="#fbbf24" stroke-width="2"/>';
+        out += '  <text x="160" y="274" text-anchor="middle" font-family="JetBrains Mono" font-size="9" font-weight="700" fill="#fbbf24">QUERY</text>';
+        out += '</g>';
+
+        if (k === 0) {
+          out += '<text x="540" y="270" text-anchor="middle" font-family="JetBrains Mono" font-size="12" fill="#64748b">NO CHUNKS RETRIEVED (RUN A QUERY DIRECTIVE ABOVE)</text>';
+        } else {
+          retrieved.forEach((c, i) => {
+            const y = (k === 1) ? 270 : (120 + i * (300 / (k - 1)));
+            const pct = (c.score * 100).toFixed(1);
+            const isGcp = (c.provider || '').toLowerCase() === 'gcp';
+            const col = isGcp ? '#4285F4' : '#0078D4';
+
+            // Curved Laser Vector
+            out += '<path d="M 188 270 C 320 270, 360 ' + y + ', 520 ' + y + '" fill="none" stroke="url(#vectorLaser)" stroke-width="2" stroke-dasharray="5,3"/>';
+
+            // Score Pill in Midpoint
+            const mx = 340;
+            const my = (270 + y) / 2;
+            out += '<rect x="' + (mx - 28) + '" y="' + (my - 10) + '" width="56" height="20" rx="3" fill="#060709" stroke="#10b981" stroke-width="1"/>';
+            out += '<text x="' + mx + '" y="' + (my + 4) + '" text-anchor="middle" font-family="JetBrains Mono" font-size="9" font-weight="700" fill="#10b981">' + pct + '%</text>';
+
+            // Retrieved Node
+            out += '<g class="cursor-pointer" onclick="inspectChunk(' + JSON.stringify(c).replace(/"/g, '&quot;') + ', \'retrieved\', ' + c.score + ')">';
+            out += '  <circle cx="530" cy="' + y + '" r="22" fill="' + col + '" filter="url(#emeraldGlow)"/>';
+            out += '  <circle cx="530" cy="' + y + '" r="17" fill="#0b0d12" stroke="#fff" stroke-width="2"/>';
+            out += '  <text x="530" y="' + (y + 4) + '" text-anchor="middle" font-family="JetBrains Mono" font-size="10" font-weight="700" fill="#fff">#' + (i + 1) + '</text>';
+            out += '  <text x="565" y="' + (y - 4) + '" font-family="Space Grotesk" font-size="12" font-weight="700" fill="#fff">' + escapeHtml((c.title || 'Chunk').slice(0, 32)) + '</text>';
+            out += '  <text x="565" y="' + (y + 14) + '" font-family="JetBrains Mono" font-size="10" fill="#94a3b8">' + c.provider.toUpperCase() + ' &middot; #' + (c.topic || 'doc') + ' &middot; ' + pct + '% SIMILARITY</text>';
+            out += '</g>';
+          });
+        }
+
+      // ==========================================
+      // VIEW MODE 3: SEPARATE ALL PRESENT CHUNKS
+      // ==========================================
+      } else if (mode === 'present') {
+        out += '<text x="480" y="38" text-anchor="middle" font-family="JetBrains Mono" font-size="12" font-weight="700" fill="#38bdf8" letter-spacing="2">STAGE 03 // ALL PRESENT KNOWLEDGE BASE CHUNKS (' + totalPresent + ')</text>';
+        out += '<text x="480" y="56" text-anchor="middle" font-family="Space Grotesk" font-size="11" fill="#94a3b8">The full vector knowledge base corpus stored in Pinecone serverless index cloud-infra-docs</text>';
+
+        // Split GCP vs Azure
+        const gcp = present.filter(c => (c.provider || '').toLowerCase() === 'gcp');
+        const azure = present.filter(c => (c.provider || '').toLowerCase() !== 'gcp');
+
+        // Left Galaxy: GCP
+        out += '<circle cx="280" cy="270" r="160" fill="none" stroke="rgba(66,133,244,0.12)" stroke-width="1" stroke-dasharray="4,4"/>';
+        out += '<circle cx="280" cy="270" r="100" fill="none" stroke="rgba(66,133,244,0.18)" stroke-width="1" stroke-dasharray="4,4"/>';
+        out += '<text x="280" y="90" text-anchor="middle" font-family="JetBrains Mono" font-size="11" font-weight="700" fill="#4285F4">GOOGLE CLOUD PLATFORM (' + gcp.length + ' CHUNKS)</text>';
+
+        gcp.forEach((c, idx) => {
+          const orbit = (idx % 2 === 0) ? 100 : 160;
+          const angle = (idx / Math.max(gcp.length, 1)) * 2 * Math.PI;
+          const cx = 280 + orbit * Math.cos(angle);
+          const cy = 270 + orbit * Math.sin(angle);
+          const isRet = c.is_retrieved;
+
+          out += '<g class="cursor-pointer" onclick="inspectChunk(' + JSON.stringify(c).replace(/"/g, '&quot;') + ', \'present\', ' + (c.score || 0) + ')">';
+          if (isRet) {
+            out += '<circle cx="' + cx + '" cy="' + cy + '" r="14" fill="#fbbf24" opacity="0.3" filter="url(#goldGlow)"/>';
+            out += '<circle cx="' + cx + '" cy="' + cy + '" r="9" fill="#4285F4" stroke="#fff" stroke-width="2"/>';
+          } else {
+            out += '<circle cx="' + cx + '" cy="' + cy + '" r="6" fill="#2563eb" opacity="0.75"/>';
+          }
+          out += '<title>' + escapeHtml(c.title + ' #' + c.chunk_index) + '</title>';
+          out += '</g>';
+        });
+
+        // Right Galaxy: Azure
+        out += '<circle cx="700" cy="270" r="130" fill="none" stroke="rgba(0,120,212,0.15)" stroke-width="1" stroke-dasharray="4,4"/>';
+        out += '<circle cx="700" cy="270" r="75" fill="none" stroke="rgba(0,120,212,0.22)" stroke-width="1" stroke-dasharray="4,4"/>';
+        out += '<text x="700" y="110" text-anchor="middle" font-family="JetBrains Mono" font-size="11" font-weight="700" fill="#0078D4">MICROSOFT AZURE (' + azure.length + ' CHUNKS)</text>';
+
+        azure.forEach((c, idx) => {
+          const orbit = (idx % 2 === 0) ? 75 : 130;
+          const angle = (idx / Math.max(azure.length, 1)) * 2 * Math.PI;
+          const cx = 700 + orbit * Math.cos(angle);
+          const cy = 270 + orbit * Math.sin(angle);
+          const isRet = c.is_retrieved;
+
+          out += '<g class="cursor-pointer" onclick="inspectChunk(' + JSON.stringify(c).replace(/"/g, '&quot;') + ', \'present\', ' + (c.score || 0) + ')">';
+          if (isRet) {
+            out += '<circle cx="' + cx + '" cy="' + cy + '" r="14" fill="#fbbf24" opacity="0.3" filter="url(#goldGlow)"/>';
+            out += '<circle cx="' + cx + '" cy="' + cy + '" r="9" fill="#0078D4" stroke="#fff" stroke-width="2"/>';
+          } else {
+            out += '<circle cx="' + cx + '" cy="' + cy + '" r="6" fill="#0ea5e9" opacity="0.75"/>';
+          }
+          out += '<title>' + escapeHtml(c.title + ' #' + c.chunk_index) + '</title>';
+          out += '</g>';
+        });
+
+      // ==========================================
+      // VIEW MODE 4: UNIFIED FULL PROCESS FLOW
+      // ==========================================
+      } else {
+        out += '<text x="480" y="32" text-anchor="middle" font-family="JetBrains Mono" font-size="11" font-weight="700" fill="#d4ff00" letter-spacing="2">UNIFIED PROCESS FLOW // INPUT CHUNK ➔ RETRIEVAL ➔ PRESENT CORPUS</text>';
+
+        const k = retrieved.length;
+        const shortQ = inputChunk && inputChunk.query ? inputChunk.query.slice(0, 24) + '…' : '(awaiting query)';
+
+        // Stage Labels
+        out += '<text x="130" y="70" text-anchor="middle" font-family="JetBrains Mono" font-size="9" font-weight="700" fill="#fbbf24">[01: INPUT CHUNK]</text>';
+        out += '<text x="410" y="70" text-anchor="middle" font-family="JetBrains Mono" font-size="9" font-weight="700" fill="#10b981">[02: RETRIEVED CHUNKS]</text>';
+        out += '<text x="760" y="70" text-anchor="middle" font-family="JetBrains Mono" font-size="9" font-weight="700" fill="#38bdf8">[03: PRESENT CORPUS (50)]</text>';
+
+        // 1. Input Node (Left)
+        out += '<g class="cursor-pointer" onclick="inspectChunk(' + JSON.stringify(inputChunk || {}).replace(/"/g, '&quot;') + ', \'input\')">';
+        out += '  <polygon points="130,230 160,250 160,290 130,310 100,290 100,250" fill="#fbbf24" filter="url(#goldGlow)"/>';
+        out += '  <polygon points="130,238 152,253 152,287 130,302 108,287 108,253" fill="#0b0d12" stroke="#fbbf24" stroke-width="2"/>';
+        out += '  <text x="130" y="274" text-anchor="middle" font-family="JetBrains Mono" font-size="10" font-weight="700" fill="#fbbf24">QUERY</text>';
+        out += '  <text x="130" y="330" text-anchor="middle" font-family="Space Grotesk" font-size="11" fill="#cbd5e1">' + escapeHtml(shortQ) + '</text>';
+        out += '</g>';
+
+        // 2. Retrieved Chunks (Center)
+        if (k > 0) {
+          retrieved.forEach((c, i) => {
+            const y = (k === 1) ? 270 : (120 + i * (300 / (k - 1)));
+            const pct = (c.score * 100).toFixed(1);
+            const isGcp = (c.provider || '').toLowerCase() === 'gcp';
+            const col = isGcp ? '#4285F4' : '#0078D4';
+
+            // Vector laser from Input to Retrieved
+            out += '<path d="M 160 270 C 260 270, 300 ' + y + ', 385 ' + y + '" fill="none" stroke="url(#vectorLaser)" stroke-width="2" stroke-dasharray="4,2"/>';
+
+            // Percentage Badge
+            const mx = 275;
+            const my = (270 + y) / 2;
+            out += '<rect x="' + (mx - 24) + '" y="' + (my - 9) + '" width="48" height="18" rx="2" fill="#060709" stroke="#10b981" stroke-width="1"/>';
+            out += '<text x="' + mx + '" y="' + (my + 4) + '" text-anchor="middle" font-family="JetBrains Mono" font-size="8" font-weight="700" fill="#10b981">' + pct + '%</text>';
+
+            // Center Retrieved Node
+            out += '<g class="cursor-pointer" onclick="inspectChunk(' + JSON.stringify(c).replace(/"/g, '&quot;') + ', \'retrieved\', ' + c.score + ')">';
+            out += '  <circle cx="410" cy="' + y + '" r="20" fill="' + col + '" filter="url(#emeraldGlow)"/>';
+            out += '  <circle cx="410" cy="' + y + '" r="16" fill="#0b0d12" stroke="#fff" stroke-width="2"/>';
+            out += '  <text x="410" y="' + (y + 4) + '" text-anchor="middle" font-family="JetBrains Mono" font-size="9" font-weight="700" fill="#fff">#' + (i + 1) + '</text>';
+            out += '</g>';
+
+            // Dotted Link from Retrieved to Knowledge Base Galaxy
+            out += '<line x1="430" y1="' + y + '" x2="650" y2="' + (100 + i * 80) + '" stroke="rgba(255,255,255,0.2)" stroke-dasharray="3,3" stroke-width="1"/>';
+          });
+        }
+
+        // 3. Present Corpus Galaxy (Right, x=650..920)
+        out += '<circle cx="780" cy="270" r="130" fill="none" stroke="rgba(56,189,248,0.1)" stroke-width="1" stroke-dasharray="4,4"/>';
+        out += '<circle cx="780" cy="270" r="75" fill="none" stroke="rgba(56,189,248,0.15)" stroke-width="1" stroke-dasharray="4,4"/>';
+
+        present.slice(0, 50).forEach((c, idx) => {
+          const orbit = (idx % 3 === 0) ? 60 : (idx % 3 === 1 ? 100 : 135);
+          const angle = (idx / 50) * 2 * Math.PI;
+          const cx = 780 + orbit * Math.cos(angle);
+          const cy = 270 + orbit * Math.sin(angle);
+          const isRet = c.is_retrieved;
+          const isGcp = (c.provider || '').toLowerCase() === 'gcp';
+          const col = isGcp ? '#4285F4' : '#0078D4';
+
+          out += '<g class="cursor-pointer" onclick="inspectChunk(' + JSON.stringify(c).replace(/"/g, '&quot;') + ', \'present\', ' + (c.score || 0) + ')">';
+          if (isRet) {
+            out += '<circle cx="' + cx + '" cy="' + cy + '" r="12" fill="#fbbf24" opacity="0.35" filter="url(#goldGlow)"/>';
+            out += '<circle cx="' + cx + '" cy="' + cy + '" r="7" fill="' + col + '" stroke="#fff" stroke-width="2"/>';
+          } else {
+            out += '<circle cx="' + cx + '" cy="' + cy + '" r="4.5" fill="' + col + '" opacity="0.6"/>';
+          }
+          out += '<title>' + escapeHtml(c.title + ' #' + c.chunk_index) + '</title>';
+          out += '</g>';
+        });
+      }
+
+      svg.innerHTML = out;
+    }
+
+    function inspectChunk(chunk, type, score) {
+      const drawer = document.getElementById('inspector-body');
+      const badge = document.getElementById('inspector-badge');
+      if (!drawer || !chunk) return;
+
+      if (type === 'input') {
+        badge.innerText = '[INPUT CHUNK]';
+        badge.className = 'text-[10px] text-amber-300 uppercase font-bold';
+        drawer.innerHTML = `
+          <div class="space-y-4">
+            <div class="p-3 bg-void hairline space-y-1">
+              <div class="text-[10px] text-amber-400 font-bold uppercase">Active Inquiry Vector</div>
+              <div class="text-white text-sm font-serif italic py-1">"${escapeHtml(chunk.query || '(empty)')}"</div>
+            </div>
+            <div class="p-3 bg-void hairline space-y-2 text-[11px] text-neutral-300">
+              <div class="flex justify-between"><span>TOKEN COUNT:</span><b class="text-white">${chunk.token_count || 0} tokens</b></div>
+              <div class="flex justify-between"><span>EMBEDDING MODEL:</span><b class="text-sky-400">${chunk.embed_model || 'nomic-embed-text'}</b></div>
+              <div class="flex justify-between"><span>DIMENSIONALITY:</span><b class="text-white">${chunk.embed_dimension || 768}-D Dense Vector</b></div>
+              <div class="flex justify-between"><span>NORMALIZATION:</span><b class="text-emerald-400">L2 Cosine Metric</b></div>
+              <div class="flex justify-between"><span>STATUS:</span><b class="text-amber-400">${chunk.status || 'vectorized'}</b></div>
+            </div>
+            <div class="text-[10px] text-neutral-500 leading-relaxed">
+              This input vector serves as the cosine search query executed against the Pinecone Starter Tier serverless index.
+            </div>
+          </div>
+        `;
+      } else {
+        const isRet = type === 'retrieved' || chunk.is_retrieved;
+        const pct = (score || chunk.score) ? ((score || chunk.score) * 100).toFixed(1) : null;
+        const prov = (chunk.provider || 'unknown').toUpperCase();
+        badge.innerText = isRet ? '[RETRIEVED CHUNK]' : '[CORPUS CHUNK]';
+        badge.className = isRet ? 'text-[10px] text-emerald-400 uppercase font-bold' : 'text-[10px] text-sky-400 uppercase font-bold';
+
+        drawer.innerHTML = `
+          <div class="space-y-4">
+            <div class="p-3 bg-void hairline space-y-1">
+              <div class="flex items-center justify-between text-[10px]">
+                <span class="${prov === 'GCP' ? 'text-blue-400' : 'text-sky-400'} font-bold">${prov} &middot; #${chunk.chunk_index || 0}</span>
+                <span class="text-neutral-500">${chunk.topic ? '#' + chunk.topic : ''}</span>
+              </div>
+              <a href="${chunk.url || '#'}" target="_blank" class="text-white font-bold text-xs hover:text-acid block transition">
+                ${escapeHtml(chunk.title || 'Official Specification')} ↗
+              </a>
+              ${pct ? `
+                <div class="flex items-center justify-between text-[10px] pt-1">
+                  <span class="text-neutral-400">COSINE SIMILARITY:</span>
+                  <span class="text-emerald-400 font-bold">${pct}%</span>
+                </div>
+              ` : `
+                <div class="text-[10px] text-neutral-400 pt-1">STATUS: PERSISTED IN PINECONE</div>
+              `}
+            </div>
+
+            <div class="space-y-1">
+              <div class="text-[10px] text-neutral-500 font-bold uppercase">CHUNK PAYLOAD (500 TOKENS)</div>
+              <div class="p-3 bg-void hairline text-[11px] text-neutral-300 leading-relaxed max-h-60 overflow-y-auto">
+                ${escapeHtml(chunk.snippet || chunk.text || 'No text snippet')}
+              </div>
+            </div>
+
+            <div class="p-3 bg-void hairline text-[10px] text-neutral-500 space-y-1">
+              <div>CHUNK ID: <code class="text-neutral-400">${chunk.id}</code></div>
+              <div>VECTOR SPACE: 768-D Float32</div>
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    function renderDetailPanes(data) {
+      if (!data) return;
+
+      // 1. Input Pane
+      const inQueryEl = document.getElementById('input-query-display');
+      const inTokenEl = document.getElementById('input-token-badge');
+      const inStatusEl = document.getElementById('input-status-badge');
+      if (data.input_chunk) {
+        if (inQueryEl) inQueryEl.innerText = '"' + data.input_chunk.query + '"';
+        if (inTokenEl) inTokenEl.innerText = 'TOKEN COUNT: ' + data.input_chunk.token_count;
+        if (inStatusEl) inStatusEl.innerText = (data.input_chunk.status || 'VECTORIZED').toUpperCase();
+      } else {
+        if (inQueryEl) inQueryEl.innerText = '"Awaiting query directive..."';
+        if (inTokenEl) inTokenEl.innerText = 'TOKEN COUNT: 0';
+        if (inStatusEl) inStatusEl.innerText = 'STANDBY';
+      }
+
+      // 2. Retrieved Chunks Pane
+      const retGrid = document.getElementById('retrieved-chunks-grid');
+      if (retGrid) {
+        if (!data.retrieved_chunks || data.retrieved_chunks.length === 0) {
+          retGrid.innerHTML = '<div class="p-4 bg-void hairline text-neutral-500 text-center col-span-2">No chunks retrieved yet. Execute a query to inspect cosine matches.</div>';
+        } else {
+          retGrid.innerHTML = data.retrieved_chunks.map((c, i) => {
+            const pct = (c.score * 100).toFixed(1);
+            const isGcp = (c.provider || '').toLowerCase() === 'gcp';
+            return `
+              <div class="p-3 bg-void hairline space-y-1.5 hover:border-emerald-400 transition cursor-pointer" onclick="inspectChunk(${JSON.stringify(c).replace(/"/g, '&quot;')}, 'retrieved', ${c.score})">
+                <div class="flex items-center justify-between text-[10px]">
+                  <span class="text-emerald-400 font-bold">[RANK #0${i + 1}]</span>
+                  <span class="px-1.5 py-0.2 bg-white/5 ${isGcp ? 'text-blue-400' : 'text-sky-400'} uppercase font-bold">${c.provider}</span>
+                </div>
+                <div class="text-white font-bold text-xs truncate">${escapeHtml(c.title)}</div>
+                <div class="flex justify-between text-[10px] text-neutral-400">
+                  <span>SIMILARITY: <b class="text-emerald-400">${pct}%</b></span>
+                  <span>CHUNK #${c.chunk_index || 0}</span>
+                </div>
+                <div class="text-[10px] text-neutral-400 line-clamp-2 leading-relaxed">${escapeHtml(c.snippet)}</div>
+              </div>
+            `;
+          }).join('');
+        }
+      }
+
+      // 3. Present Chunks Pane
+      renderPresentChunksGrid(data.present_chunks || []);
+    }
+
+    function renderPresentChunksGrid(chunks) {
+      const grid = document.getElementById('present-chunks-grid');
+      if (!grid) return;
+
+      let filtered = chunks;
+      if (presentProviderFilter !== 'all') {
+        filtered = filtered.filter(c => (c.provider || '').toLowerCase() === presentProviderFilter);
+      }
+      const searchBox = document.getElementById('present-search-input');
+      const term = searchBox ? searchBox.value.trim().toLowerCase() : '';
+      if (term) {
+        filtered = filtered.filter(c => 
+          (c.title || '').toLowerCase().includes(term) ||
+          (c.topic || '').toLowerCase().includes(term) ||
+          (c.snippet || '').toLowerCase().includes(term)
+        );
+      }
+
+      if (filtered.length === 0) {
+        grid.innerHTML = '<div class="p-4 bg-void hairline text-neutral-500 text-center col-span-3">No matching chunks in corpus.</div>';
+        return;
+      }
+
+      grid.innerHTML = filtered.map(c => {
+        const isRet = c.is_retrieved;
+        const isGcp = (c.provider || '').toLowerCase() === 'gcp';
+        return `
+          <div class="p-2.5 bg-void hairline space-y-1 hover:border-acid transition cursor-pointer" onclick="inspectChunk(${JSON.stringify(c).replace(/"/g, '&quot;')}, 'present', ${c.score || 0})">
+            <div class="flex items-center justify-between text-[9px]">
+              <span class="${isGcp ? 'text-blue-400' : 'text-sky-400'} font-bold">${(c.provider || '').toUpperCase()} &middot; #${c.chunk_index || 0}</span>
+              ${isRet ? '<span class="text-emerald-400 font-bold bg-emerald-950/60 px-1 border border-emerald-500/40">RETRIEVED</span>' : '<span class="text-neutral-500">IN CORPUS</span>'}
+            </div>
+            <div class="text-white text-[11px] font-bold truncate">${escapeHtml(c.title)}</div>
+            <div class="text-[9px] text-neutral-500 truncate">${c.topic ? '#' + c.topic : ''} &middot; ${escapeHtml(c.snippet ? c.snippet.slice(0, 45) + '…' : '')}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function filterPresentChunksList() {
+      if (currentGraphData) {
+        renderPresentChunksGrid(currentGraphData.present_chunks || []);
+      }
+    }
+
+    function filterPresentByProvider(prov) {
+      presentProviderFilter = prov;
+      ['all', 'gcp', 'azure'].forEach(p => {
+        const btn = document.getElementById('btn-pres-' + p);
+        if (!btn) return;
+        if (p === prov) {
+          btn.className = 'px-2 py-0.5 text-acid bg-white/5 border border-acid/30 font-bold';
+        } else {
+          btn.className = 'px-2 py-0.5 text-neutral-400 hover:text-white';
+        }
+      });
+      if (currentGraphData) {
+        renderPresentChunksGrid(currentGraphData.present_chunks || []);
+      }
     }
 
     // Ingestion Trigger

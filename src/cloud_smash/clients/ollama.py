@@ -94,6 +94,10 @@ class OllamaClient:
         vectors = await self.embed_texts([query])
         return vectors[0]
 
+    async def embed(self, query: str) -> list[float]:
+        """Convenience alias for embed_query."""
+        return await self.embed_query(query)
+
     async def chat(self, messages: list[dict[str, str]]) -> str:
         """Send a non-streaming chat completion request to Ollama."""
 

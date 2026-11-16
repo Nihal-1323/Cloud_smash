@@ -73,3 +73,20 @@ def test_query_applies_provider_filter_and_maps_chunks() -> None:
     assert results[0].score == 0.9123
     assert fake_index.query_calls[0]["filter"] == {"provider": {"$eq": "azure"}}
     assert fake_index.query_calls[0]["top_k"] == 4
+
+
+def test_get_all_chunks_and_caching() -> None:
+    fake_index = _FakeIndex()
+    settings = Settings(pinecone_api_key="test-key", pinecone_embed_dimension=2)
+    store = PineconeStore(settings, index=fake_index)
+
+    chunks = store.get_all_chunks()
+    assert len(chunks) == 1
+    assert chunks[0].id == "chunk-1"
+    assert chunks[0].provider == "azure"
+
+    # Second call should use cache
+    call_count_before = len(fake_index.query_calls)
+    cached = store.get_all_chunks()
+    assert len(cached) == 1
+    assert len(fake_index.query_calls) == call_count_before

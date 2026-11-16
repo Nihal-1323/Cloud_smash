@@ -63,6 +63,9 @@ class PineconeStore:
         self._dimension = settings.pinecone_embed_dimension
         self._client = client
         self._index = index
+        self._cached_chunks: list[RetrievedChunk] | None = None
+        self._cache_time: float = 0.0
+        self._cache_ttl: float = 300.0
 
     def _get_client(self) -> Any:
         if self._client is None:
@@ -127,6 +130,7 @@ class PineconeStore:
             )
             total_upserted += len(batch)
 
+        self._cached_chunks = None
         return total_upserted
 
     def query(
@@ -215,3 +219,63 @@ class PineconeStore:
             "namespace": self._namespace,
             "total_vector_count": total_vectors,
         }
+
+    def get_all_chunks(self, force_refresh: bool = False, max_chunks: int = 200) -> list[RetrievedChunk]:
+        """Fetch all vector chunks present in the index with in-memory caching."""
+        import time
+
+        now = time.time()
+        if not force_refresh and self._cached_chunks is not None and (now - self._cache_time) < self._cache_ttl:
+            return list(self._cached_chunks)
+
+        try:
+            index = self._get_index()
+            response = retry_sync(
+                lambda: index.query(
+                    vector=[0.0] * self._dimension,
+                    top_k=max_chunks,
+                    namespace=self._namespace,
+                    include_metadata=True,
+                ),
+                is_retryable=_is_retryable_pinecone_error,
+            )
+            matches = (
+                response.get("matches", [])
+                if isinstance(response, dict)
+                else getattr(response, "matches", [])
+            )
+            chunks: list[RetrievedChunk] = []
+            for match in matches:
+                meta = (
+                    match.get("metadata", {})
+                    if isinstance(match, dict)
+                    else getattr(match, "metadata", {}) or {}
+                )
+                match_id = match["id"] if isinstance(match, dict) else match.id
+                chunks.append(
+                    RetrievedChunk(
+                        id=match_id,
+                        score=0.0,
+                        text=str(meta.get("text", "")),
+                        url=str(meta.get("url", "")),
+                        title=str(meta.get("title", "Untitled")),
+                        provider=str(meta.get("provider", "unknown")),
+                        topic=str(meta.get("topic", "")),
+                        chunk_index=int(meta.get("chunk_index", 0)),
+                    )
+                )
+            chunks.sort(key=lambda c: (c.provider, c.topic, c.chunk_index))
+            self._cached_chunks = chunks
+            self._cache_time = now
+            return list(chunks)
+        except Exception as exc:
+            logger.warning("Could not fetch all chunks from Pinecone: %s", exc)
+            if self._cached_chunks is not None:
+                return list(self._cached_chunks)
+            return []
+
+    async def aget_all_chunks(
+        self, force_refresh: bool = False, max_chunks: int = 200
+    ) -> list[RetrievedChunk]:
+        """Async wrapper around get_all_chunks."""
+        return await asyncio.to_thread(self.get_all_chunks, force_refresh, max_chunks)
